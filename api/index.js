@@ -10,23 +10,20 @@ app.use(cookieSession({
   secret: process.env.SESSION_SECRET || "devsecret",
   sameSite: "lax",
   httpOnly: true,
-  secure: true   // set true in prod; if testing locally over http, you can set false
+  secure: true
 }));
 
 const XERO_AUTH = "https://login.xero.com/identity/connect/authorize";
 const XERO_TOKEN = "https://identity.xero.com/connect/token";
 
-// health
 app.get("/health", (req, res) => res.json({ ok: true }));
 
-// start oauth
 app.get("/oauth/login", (req, res) => {
   const scopes = [
     "offline_access", "openid", "profile", "email",
     "accounting.contacts.read", "accounting.settings.read",
     "accounting.transactions", "accounting.transactions.read"
   ].join(" ");
-
   const params = new URLSearchParams({
     response_type: "code",
     client_id: process.env.XERO_CLIENT_ID,
@@ -34,11 +31,9 @@ app.get("/oauth/login", (req, res) => {
     scope: scopes,
     state: "prostencil"
   });
-
   res.redirect(`${XERO_AUTH}?${params.toString()}`);
 });
 
-// oauth callback
 app.get("/oauth/callback", async (req, res) => {
   try {
     const tokenRes = await axios.post(
@@ -55,7 +50,6 @@ app.get("/oauth/callback", async (req, res) => {
 
     req.session.tokens = tokenRes.data;
 
-    // get tenant
     const tenRes = await axios.get("https://api.xero.com/connections", {
       headers: { Authorization: `Bearer ${tokenRes.data.access_token}` }
     });
@@ -63,8 +57,6 @@ app.get("/oauth/callback", async (req, res) => {
     if (!tenant) return res.status(400).send("No tenant connected");
 
     req.session.tenantId = tenant.tenantId;
-
-    // go to portal home
     res.redirect("/portal");
   } catch (e) {
     console.error("OAuth error", e?.response?.data || e.message);
@@ -72,21 +64,16 @@ app.get("/oauth/callback", async (req, res) => {
   }
 });
 
-// simple portal page
 app.get("/portal", (req, res) => {
   const authed = Boolean(req.session.tokens && req.session.tenantId);
   res.setHeader("Content-Type", "text/html");
   res.end(`<!doctype html><html><body style="font-family:sans-serif;padding:24px;">
     <h2>ProStencil Portal</h2>
-    ${authed ? `
-      <p>Connected to Xero. <a href="/api/orders">View your orders (demo)</a></p>
-    ` : `
-      <p><a href="/oauth/login">Connect to Xero</a></p>
-    `}
+    ${authed ? `<p>Connected to Xero. <a href="/api/orders">View orders (demo)</a></p>` 
+              : `<p><a href="/oauth/login">Connect to Xero</a></p>`}
   </body></html>`);
 });
 
-// demo: list invoices (you’ll later filter by ContactID)
 app.get("/api/orders", async (req, res) => {
   try {
     const access = req.session.tokens?.access_token;
@@ -106,3 +93,4 @@ app.get("/api/orders", async (req, res) => {
 });
 
 export default serverless(app);
+export const config = { runtime: "nodejs20.x" };
